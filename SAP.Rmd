@@ -270,7 +270,8 @@ df_summ %>%
   ggplot(aes(x = percent_NA)) +
   geom_histogram() +
   xlab("NA Percentage (%)") + 
-  ylab("Number of Columns")
+  ylab("Num. of Columns") +
+  theme(axis.title.y = element_text(size=8))
 ```
 
 
@@ -318,12 +319,18 @@ df_no_outliers <- df %>%
 ggplot_carrier <- ggplot(df_no_outliers, aes(x=OP_UNIQUE_CARRIER, y=DEP_DELAY)) +
   geom_violin() +
   geom_boxplot(width = 0.1) +
-  ggtitle("Departure Delay by Carrier") 
+  ggtitle("Departure Delay by Carrier") +
+  xlab("Carrier Code") + 
+  ylab("Departure Delay (min)") +
+  theme(axis.title.y = element_text(size=10))
 
 ggplot_dep_time <- ggplot(df_no_outliers, aes(x=CRS_DEP_TIME, y=DEP_DELAY)) +
   geom_point(aes(alpha = 0.05)) +
   ggtitle("Departure Delay vs Departure Time") +
-  theme(legend.position = "none", axis.title.x = element_blank())
+  theme(legend.position = "none") +
+  xlab("Departure Time (Military Time)") + 
+  ylab("Departure Delay (min)") +
+  theme(axis.title.y = element_text(size=10))
 
 vars <- colnames(df_no_outliers)
 vars <- vars[!vars %in% c("FL_DATE", "OP_UNIQUE_CARRIER", "ORIGIN", "DEST", "CRS_DEP_TIME", "DEP_DELAY", "DIVERTED")]
@@ -331,7 +338,8 @@ for (variable in vars) {
   plot_var_name <- str_c(c("ggplot", variable), collapse = "_")
   temp_plot <- ggplot(df_no_outliers, aes_string(x=variable, y="DEP_DELAY")) +
     geom_point(aes(alpha=0.05), na.rm = T) +
-    theme(legend.position = "none")
+    theme(legend.position = "none") +
+    ylab("Departure Delay (min)")
   assign(plot_var_name, temp_plot)
 }
 grid.arrange(
@@ -340,9 +348,9 @@ grid.arrange(
 )
 ```
 
-All carriers seem to have a similar highly skewed distribution of delay times, with center around 0 and a long tail towards longer delay times. However, there are differences in variance for outlying values particularly because 4,093 out of the 7,859 flights are from American Airlines.
+The plots shown below from Figure 3 and 4 are limited to data with a departure delay less than 3 hours or 180 minutes. Only 127 out of the total 7,859 flight observations have departure delays above 3 hours, which is only 1.62% of the data. Thus, it seemed reasonable to fit a model with a heavy-tailed distribution for the error terms. All carriers seem to have a similar highly skewed distribution of delay times, with center around 0 and a long tail towards longer delay times. However, there are differences in variance for outlying values particularly because 4,093 out of the 7,859 flights are from American Airlines. This further motivates the sensitivity analysis with respect to airline segregation for delays and cancellations.
 
-```{r plots, fig.height=7, fig.width=10, fig.cap="Predictors vs Response Variable"}
+```{r plots, fig.height=7, fig.width=8.5, fig.cap="Predictors vs Response Variable (See Table 2 for variable names)"}
 grid.arrange(
   ggplot_AWND.origin,
   ggplot_AWND.dest,
@@ -358,6 +366,8 @@ AA_df <- df %>%
   filter(OP_UNIQUE_CARRIER == "AA")
 ```
 
+From the EDA, it is evident that pairs of weather covariates from the destination and origin will be highly correlated due to the fact that measurements are daily summaries, which could be an issue looking forward but will be decided when addressing multicollinearity. 
+
 ```{r timeplots, fig.height=4, fig.width=10, fig.cap="Time Series Plots"}
 
 myMtime <- df$CRS_DEP_TIME
@@ -368,12 +378,18 @@ df$date_time <- as.POSIXct(paste0(date, " ", myMtime), format = "%Y-%m-%d %H%M",
 all_time <- df %>%
   ggplot(aes(x = date_time, y = DEP_DELAY)) + 
   geom_line() +
-  geom_smooth()
+  geom_smooth() +
+  xlab("Flight Date") + 
+  ylab("Departure Delay (min)") +
+  theme(axis.title.y = element_text(size=8))
 onehr_time <- df %>%
   filter(DEP_DELAY < 60) %>%
   ggplot(aes(x = date_time, y = DEP_DELAY)) + 
   geom_line() +
-  geom_smooth()
+  geom_smooth() +
+  xlab("Flight Date") + 
+  ylab("Departure Delay") +
+  theme(axis.title.y = element_text(size=8))
 
 grid.arrange(
   all_time,
@@ -381,19 +397,33 @@ grid.arrange(
 )
 ```
 
+From the time series data in Figure 5, which could be interesting to explore further to identify seasonal or weekly changes, we can see that the outlying values are dominating the dataset, and even when filtering extremely for delays of less than 1 hour, fitting the default cubic spline GAM does not indicate any significant trend initially.
 
-The plots shown above are limited to data with a departure delay less than 3 hours or 180 minutes. Only 127 out of the total 7,859 flight observations have departure delays above 3 hours, which is only 1.62% of the data. Thus, it seemed reasonable to fit a model with a heavy-tailed distribution for the error terms. From the EDA, it is evident that pairs of weather covariates from the destination and origin will be highly correlated due to the fact that measurements are daily summaries, which could be an issue looking forward but will be decided when addressing multicollinearity. From the time series data, which could be interesting to explore further to identify seasonal or weekly changes, we can see that the outlying values are dominating the dataset, and even when filtering extremely for delays of less than 1 hour, fitting the default cubic spline GAM does not indicate any significant trend.
+```{r cancellations, fig.height=2, fig.width=10, fig.cap="Flight Cancellations"}
+df <- df %>%
+  mutate(CANCELLED_WEATHER = if_else(CANCELLATION_CODE == "C", "1", "0")) 
+
+df %>%
+  ggplot(aes(x = FL_DATE, y = TMAX.origin, group = CANCELLED_WEATHER)) +
+  geom_point(aes(shape=CANCELLED_WEATHER, color=CANCELLED_WEATHER, size=CANCELLED_WEATHER, alpha = CANCELLED_WEATHER)) +
+  xlab("Flight Date") + 
+  ylab("Minimum Temperature at Origin (Fahrenheit)") +
+  theme(axis.title.y = element_text(size=8), legend.position = "none")
+
+df %>%
+  ggplot(aes(x = TAVG.origin, y = PRCP.origin, group = CANCELLED_WEATHER)) +
+  geom_point(aes(shape=CANCELLED_WEATHER, color=CANCELLED_WEATHER, size=CANCELLED_WEATHER, alpha = CANCELLED_WEATHER)) +
+  xlab("Average Temperature at Origin (Fahrenheit)") + 
+  ylab("Precipitation at Origin (Inches)") +
+  theme(axis.title.y = element_text(size=8), legend.position = "none")
+
+```
+
+Finally, regarding flight cancellation trends, there were a total of 172 cancelled flights in the dataset, and only 17 of those were weather related (Code C). From Figure 6 it is evident that the cancelled flights due to weather (represented by blue triangles) were only present after 2022 in the data, and there seems to be a correlation with temperature. However, precipitation is not seen as a particularly strong predictor as expected.
 
 # Software
 
--   R version 4.2.2 (2022-10-31)
-Packages:
--   dplyr
--   tidyverse
--   ggplot2
--   gridExtra
--   MASS
--   car
+-   R version 4.2.2 (2022-10-31) using the tidyverse, ggplot2, gridExtra, MASS, and car packages, along with their dependencies.
 
 # References
 
